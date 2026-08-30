@@ -1,6 +1,7 @@
 use lenso_postgres_kit::OwnedPostgres;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 use sqlx::{Postgres, Row, Transaction, types::Json};
 use thiserror::Error;
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
@@ -740,8 +741,14 @@ async fn advisory_lock(
     transaction: &mut Transaction<'_, Postgres>,
     value: &str,
 ) -> Result<(), StorageError> {
-    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))")
-        .bind(value)
+    let digest = Sha256::digest(value.as_bytes());
+    let lock_key = i64::from_be_bytes(
+        digest[..8]
+            .try_into()
+            .expect("SHA-256 always contains eight lock-key bytes"),
+    );
+    sqlx::query("SELECT pg_advisory_xact_lock($1)")
+        .bind(lock_key)
         .execute(&mut **transaction)
         .await
         .map_err(|source| database("acquire idempotency lock", source))?;
