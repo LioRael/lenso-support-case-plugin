@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["organization_id", "limit"],
+  "properties": {
+    "organization_id": { "type": "string" },
+    "state": { "type": "string", "enum": ["open", "in_progress", "waiting_customer", "resolved", "closed"] },
+    "assignee_subject": { "type": "string" },
+    "requester_subject": { "type": "string" },
+    "cursor": { "type": "string" },
+    "limit": { "type": "integer", "minimum": 1, "maximum": 200 }
+  },
+  "additionalProperties": false
+}
+

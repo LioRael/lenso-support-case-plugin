@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["organization_id", "case_ref"],
+  "properties": {
+    "organization_id": { "type": "string" },
+    "case_ref": { "type": "string" }
+  },
+  "additionalProperties": false
+}
+

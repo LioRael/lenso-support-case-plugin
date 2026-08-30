@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["messages", "next_cursor"],
+  "properties": {
+    "messages": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["message_id", "case_id", "visibility", "author_subject", "body", "created_at"],
+        "properties": {
+          "message_id": { "type": "string" },
+          "case_id": { "type": "string" },
+          "visibility": { "type": "string", "enum": ["public", "internal"] },
+          "author_subject": { "type": "string" },
+          "body": { "type": "string" },
+          "created_at": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "next_cursor": { "type": ["string", "null"] }
+  },
+  "additionalProperties": false
+}
+

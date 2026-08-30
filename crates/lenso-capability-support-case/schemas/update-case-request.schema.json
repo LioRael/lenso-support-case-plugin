@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["organization_id", "case_id", "expected_revision", "idempotency_key"],
+  "properties": {
+    "organization_id": { "type": "string" },
+    "case_id": { "type": "string" },
+    "title": { "type": "string" },
+    "description": { "type": "string" },
+    "priority": { "type": "string", "enum": ["low", "normal", "high", "urgent"] },
+    "expected_revision": { "type": "string" },
+    "idempotency_key": { "type": "string" }
+  },
+  "additionalProperties": false
+}
+

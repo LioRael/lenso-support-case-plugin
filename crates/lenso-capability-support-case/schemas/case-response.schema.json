@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["case_id", "identifier", "organization_id", "requester_subject", "creator_subject", "title", "description", "priority", "state", "assignee_subject", "revision", "created_at", "updated_at", "resolved_at", "closed_at"],
+  "properties": {
+    "case_id": { "type": "string" },
+    "identifier": { "type": "string" },
+    "organization_id": { "type": "string" },
+    "requester_subject": { "type": "string" },
+    "creator_subject": { "type": "string" },
+    "title": { "type": "string" },
+    "description": { "type": "string" },
+    "priority": { "type": "string", "enum": ["low", "normal", "high", "urgent"] },
+    "state": { "type": "string", "enum": ["open", "in_progress", "waiting_customer", "resolved", "closed"] },
+    "assignee_subject": { "type": ["string", "null"] },
+    "revision": { "type": "string" },
+    "created_at": { "type": "string" },
+    "updated_at": { "type": "string" },
+    "resolved_at": { "type": ["string", "null"] },
+    "closed_at": { "type": ["string", "null"] }
+  },
+  "additionalProperties": false
+}
+

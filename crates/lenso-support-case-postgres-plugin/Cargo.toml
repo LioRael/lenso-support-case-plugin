@@ -1,0 +1,47 @@
+[package]
+name = "lenso-support-case-postgres-plugin"
+version = "0.1.0"
+description = "PostgreSQL-backed Support Case Plugin for Lenso applications."
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[package.metadata.lenso]
+plugin-id = "lenso.support-case.postgres"
+root-slot = "support-case"
+
+[features]
+default = []
+postgres-acceptance = []
+
+[dependencies]
+futures.workspace = true
+lenso.workspace = true
+lenso-auth-sdk.workspace = true
+lenso-capability-access-control.workspace = true
+lenso-capability-data-export-source.workspace = true
+lenso-capability-organization-membership.workspace = true
+lenso-capability-retention-participant.workspace = true
+lenso-capability-secrets.workspace = true
+lenso-capability-support-case = { version = "0.1.0", path = "../lenso-capability-support-case" }
+lenso-kernel.workspace = true
+lenso-native-adapter.workspace = true
+lenso-postgres-kit.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+sqlx.workspace = true
+thiserror.workspace = true
+time.workspace = true
+uuid.workspace = true
+zeroize.workspace = true
+
+[dev-dependencies]
+lenso-app-plan.workspace = true
+tokio.workspace = true
+
+[lints]
+workspace = true
+

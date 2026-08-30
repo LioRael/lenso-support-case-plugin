@@ -1,0 +1,17 @@
+{
+  "id": "lenso.support-case@1",
+  "version": "1.0.0",
+  "portable": true,
+  "cross_lane_transfer": true,
+  "operations": [
+    { "name": "create_case", "interaction": "request", "request_schema": "schemas/create-case-request.schema.json", "response_schema": "schemas/case-response.schema.json", "domain_error_schema": "schemas/create-case-error.schema.json" },
+    { "name": "get_case", "interaction": "request", "request_schema": "schemas/get-case-request.schema.json", "response_schema": "schemas/case-response.schema.json", "domain_error_schema": "schemas/read-case-error.schema.json" },
+    { "name": "list_cases", "interaction": "request", "request_schema": "schemas/list-cases-request.schema.json", "response_schema": "schemas/list-cases-response.schema.json", "domain_error_schema": "schemas/list-cases-error.schema.json" },
+    { "name": "update_case", "interaction": "request", "request_schema": "schemas/update-case-request.schema.json", "response_schema": "schemas/case-response.schema.json", "domain_error_schema": "schemas/mutate-case-error.schema.json" },
+    { "name": "assign_case", "interaction": "request", "request_schema": "schemas/assign-case-request.schema.json", "response_schema": "schemas/case-response.schema.json", "domain_error_schema": "schemas/mutate-case-error.schema.json" },
+    { "name": "transition_case", "interaction": "request", "request_schema": "schemas/transition-case-request.schema.json", "response_schema": "schemas/case-response.schema.json", "domain_error_schema": "schemas/transition-case-error.schema.json" },
+    { "name": "add_message", "interaction": "request", "request_schema": "schemas/add-message-request.schema.json", "response_schema": "schemas/message-response.schema.json", "domain_error_schema": "schemas/mutate-case-error.schema.json" },
+    { "name": "list_messages", "interaction": "request", "request_schema": "schemas/list-messages-request.schema.json", "response_schema": "schemas/list-messages-response.schema.json", "domain_error_schema": "schemas/read-case-error.schema.json" }
+  ]
+}
+
