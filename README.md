@@ -71,16 +71,21 @@ only calls `OwnedPostgres::prepare`, so starting the App never performs DDL.
 ## Verification
 
 ```bash
-/Users/leosouthey/Projects/framework/.lenso-tools/bin/lenso-cargo fmt --all -- --check
-/Users/leosouthey/Projects/framework/.lenso-tools/bin/lenso-cargo check --workspace --all-targets --all-features
-/Users/leosouthey/Projects/framework/.lenso-tools/bin/lenso-cargo test --workspace --all-features
-/Users/leosouthey/Projects/framework/.lenso-tools/bin/lenso-cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo fmt --all -- --check
+cargo check --locked --workspace --all-targets --all-features
+cargo test --locked --workspace --all-targets
+cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
+lenso-contract-codegen workspace check --manifest-path Cargo.toml
 ./scripts/check-repository-boundary.sh
+./scripts/check-public-packages.sh
 ```
 
 Set `LENSO_SUPPORT_CASE_TEST_DATABASE_URL` to run the restart and concurrent
 revision acceptance slice against PostgreSQL. Without it, that optional test
 returns without external I/O.
+
+The two public crates and their manual Trusted Publishing workflow are
+documented in [`docs/release-process.md`](docs/release-process.md).
 
 ## v1 limits
 

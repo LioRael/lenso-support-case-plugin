@@ -4,9 +4,10 @@ version = "0.1.0"
 description = "PostgreSQL-backed Support Case Plugin for Lenso applications."
 edition.workspace = true
 license.workspace = true
-publish.workspace = true
+publish = true
 repository.workspace = true
 rust-version.workspace = true
+include = ["configuration.schema.json", "migrations/*.sql", "src/*.rs"]
 
 [package.metadata.lenso]
 plugin-id = "lenso.support-case.postgres"
@@ -44,4 +45,3 @@ tokio.workspace = true
 
 [lints]
 workspace = true
-
