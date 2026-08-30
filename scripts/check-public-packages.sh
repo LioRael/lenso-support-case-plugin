@@ -9,6 +9,8 @@ verification_root="$(mktemp -d "${TMPDIR:-/tmp}/lenso-support-case-packages.XXXX
 trap 'rm -rf "$verification_root"' EXIT
 
 packages=(
+  lenso-capability-support-case-authorization
+  lenso-capability-support-intake
   lenso-capability-support-case
   lenso-support-case-postgres-plugin
 )
@@ -36,6 +38,16 @@ required_source_set=(
   crates/lenso-capability-support-case/schemas/create-case-request.schema.json
   crates/lenso-capability-support-case/src/generated.rs
   crates/lenso-capability-support-case/src/lib.rs
+  crates/lenso-capability-support-case-authorization/build.rs
+  crates/lenso-capability-support-case-authorization/capability.json
+  crates/lenso-capability-support-case-authorization/schemas/authorize-request.schema.json
+  crates/lenso-capability-support-case-authorization/src/generated.rs
+  crates/lenso-capability-support-case-authorization/src/lib.rs
+  crates/lenso-capability-support-intake/build.rs
+  crates/lenso-capability-support-intake/capability.json
+  crates/lenso-capability-support-intake/schemas/open-case-request.schema.json
+  crates/lenso-capability-support-intake/src/generated.rs
+  crates/lenso-capability-support-intake/src/lib.rs
   crates/lenso-support-case-postgres-plugin/configuration.schema.json
   crates/lenso-support-case-postgres-plugin/migrations/001_create_support_cases.sql
   crates/lenso-support-case-postgres-plugin/src/lib.rs
@@ -69,10 +81,17 @@ if [[ "${LENSO_PACKAGE_ALLOW_DIRTY:-0}" == "1" ]]; then
   package_flags+=(--allow-dirty)
 fi
 
-"$cargo_bin" package --quiet "${package_flags[@]}" -p lenso-capability-support-case
+for capability_package in \
+  lenso-capability-support-case \
+  lenso-capability-support-case-authorization \
+  lenso-capability-support-intake; do
+  "$cargo_bin" package --quiet "${package_flags[@]}" -p "$capability_package"
+done
 "$cargo_bin" package --quiet "${package_flags[@]}" --no-verify \
   -p lenso-support-case-postgres-plugin \
-  --config 'patch.crates-io.lenso-capability-support-case.path="crates/lenso-capability-support-case"'
+  --config 'patch.crates-io.lenso-capability-support-case.path="crates/lenso-capability-support-case"' \
+  --config 'patch.crates-io.lenso-capability-support-case-authorization.path="crates/lenso-capability-support-case-authorization"' \
+  --config 'patch.crates-io.lenso-capability-support-intake.path="crates/lenso-capability-support-intake"'
 
 for package in "${packages[@]}"; do
   version="$(jq -r --arg package "$package" '.packages[] | select(.name == $package) | .version' <<<"$metadata")"
@@ -93,23 +112,14 @@ for package in "${packages[@]}"; do
   fi
 done
 
-capability_version="$(jq -r '.packages[] | select(.name == "lenso-capability-support-case") | .version' <<<"$metadata")"
-plugin_version="$(jq -r '.packages[] | select(.name == "lenso-support-case-postgres-plugin") | .version' <<<"$metadata")"
-capability_extracted="$verification_root/lenso-capability-support-case-$capability_version"
-plugin_extracted="$verification_root/lenso-support-case-postgres-plugin-$plugin_version"
-
 for source in "${required_source_set[@]}"; do
-  relative="${source#crates/lenso-capability-support-case/}"
-  if [[ "$relative" != "$source" ]]; then
-    test -f "$capability_extracted/$relative" || {
-      printf 'Capability archive source is missing: %s\n' "$relative" >&2
-      exit 1
-    }
-    continue
-  fi
-  relative="${source#crates/lenso-support-case-postgres-plugin/}"
-  test -f "$plugin_extracted/$relative" || {
-    printf 'Plugin archive source is missing: %s\n' "$relative" >&2
+  package="${source#crates/}"
+  package="${package%%/*}"
+  relative="${source#crates/$package/}"
+  version="$(jq -r --arg package "$package" '.packages[] | select(.name == $package) | .version' <<<"$metadata")"
+  extracted="$verification_root/$package-$version"
+  test -f "$extracted/$relative" || {
+    printf '%s archive source is missing: %s\n' "$package" "$relative" >&2
     exit 1
   }
 done
