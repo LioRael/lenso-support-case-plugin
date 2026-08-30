@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["organization_id", "case_ref", "requester_subject", "cursor", "limit"],
+  "properties": {
+    "organization_id": { "type": "string" },
+    "case_ref": { "type": "string" },
+    "requester_subject": { "type": "string" },
+    "cursor": { "type": ["string", "null"] },
+    "limit": { "type": "integer", "minimum": 1, "maximum": 200 }
+  }
+}

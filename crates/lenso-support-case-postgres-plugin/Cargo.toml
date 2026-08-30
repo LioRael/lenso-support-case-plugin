@@ -26,6 +26,8 @@ lenso-capability-data-export-source.workspace = true
 lenso-capability-organization-membership.workspace = true
 lenso-capability-retention-participant.workspace = true
 lenso-capability-secrets.workspace = true
+lenso-capability-support-case-authorization = { version = "0.1.0", path = "../lenso-capability-support-case-authorization" }
+lenso-capability-support-intake = { version = "0.1.0", path = "../lenso-capability-support-intake" }
 lenso-capability-support-case = { version = "0.1.0", path = "../lenso-capability-support-case" }
 lenso-kernel.workspace = true
 lenso-native-adapter.workspace = true

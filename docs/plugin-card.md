@@ -10,10 +10,13 @@ Access Control policy.
 
 ## Provided behavior
 
-`lenso.support-case@1` provides eight request operations: create/get/list,
-update/assign/transition, and add/list messages. The same Plugin release also
-provides the existing `lenso.data-export-source@1` and
-`lenso.retention-participant@1` roles with real PostgreSQL implementations.
+`lenso.support-case@1` provides eight back-office request operations:
+create/get/list, update/assign/transition, and add/list messages. The same
+release provides four requester-facing operations through
+`lenso.support-intake@1`, one final resource decision through
+`lenso.support-case-authorization@1`, and the existing
+`lenso.data-export-source@1` and `lenso.retention-participant@1` roles with real
+PostgreSQL implementations.
 
 The `SUP-N` identifier is stable only within one Organization. Mutations accept
 the stable UUID, an idempotency key, and (except create) an expected decimal
@@ -22,9 +25,14 @@ separated by a storage predicate, not presentation-layer filtering.
 
 ## Authorization boundary
 
-The Plugin requires exact caller allowlists, exact-operation Auth assertions,
-active Organization membership, one bound Access Control Provider, and a final
-resource-local relationship check. Dependency Runtime failures propagate;
+The Plugin uses separate exact caller allowlists for back-office business,
+requester intake, resource authorization, export, and retention. Back-office
+operations require exact-operation Auth assertions. Internal or privileged
+actions also require active Organization membership and an Access Control
+decision. Intake callers must derive `requester_subject` from a credential they
+verified; Support Case then constrains every read and append to that exact
+requester. Resource callers receive only a final allow/deny plus canonical case
+UUID and never direct table access. Dependency Runtime failures propagate;
 dependency domain rejection never becomes an allow decision.
 
 Organization-wide permissions do not replace membership. A requester exception
@@ -53,7 +61,7 @@ different intent is rejected.
 ## Honest limits
 
 The upstream export-source role is bounded-inline and has no cursor contract;
-payloads over the configured limit fail atomically. v1 has no attachments,
-email transport, SLA timers, full-text search, case merge/split, webhook event
-role, or Console contribution.
-
+payloads over the configured limit fail atomically. Attachment storage and
+email transport are separate Plugins using the two narrow seams above. v1 has
+no SLA timers, full-text search, case merge/split, webhook event role, or
+Console contribution.

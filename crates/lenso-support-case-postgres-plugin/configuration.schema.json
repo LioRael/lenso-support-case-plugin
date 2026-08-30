@@ -2,17 +2,18 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "PostgreSQL Support Case Plugin configuration",
   "type": "object",
-  "required": ["schema", "database_url_secret", "auth_issuer", "auth_assertion_public_key", "business_callers", "export_callers", "retention_callers"],
+  "required": ["schema", "database_url_secret", "auth_issuer", "auth_assertion_public_key", "business_callers", "intake_callers", "resource_callers", "export_callers", "retention_callers"],
   "properties": {
-    "schema": { "type": "string", "minLength": 1, "maxLength": 63 },
-    "database_url_secret": { "type": "string", "minLength": 1, "maxLength": 256 },
-    "auth_issuer": { "type": "string", "minLength": 1, "maxLength": 256 },
-    "auth_assertion_public_key": { "type": "string", "minLength": 1, "maxLength": 256 },
-    "business_callers": { "type": "array", "minItems": 1, "maxItems": 64, "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 256 } },
-    "export_callers": { "type": "array", "minItems": 1, "maxItems": 64, "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 256 } },
-    "retention_callers": { "type": "array", "minItems": 1, "maxItems": 64, "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 256 } },
-    "max_export_bytes": { "type": "integer", "minimum": 1, "maximum": 8388608, "default": 8388608 }
+    "schema": { "type": "string" },
+    "database_url_secret": { "type": "string" },
+    "auth_issuer": { "type": "string" },
+    "auth_assertion_public_key": { "type": "string" },
+    "business_callers": { "type": "array", "items": { "type": "string" } },
+    "intake_callers": { "type": "array", "items": { "type": "string" } },
+    "resource_callers": { "type": "array", "items": { "type": "string" } },
+    "export_callers": { "type": "array", "items": { "type": "string" } },
+    "retention_callers": { "type": "array", "items": { "type": "string" } },
+    "max_export_bytes": { "type": "integer", "minimum": 1 }
   },
   "additionalProperties": false
 }
-

@@ -1,0 +1,36 @@
+{
+  "id": "lenso.support-intake@1",
+  "version": "1.0.0",
+  "portable": true,
+  "cross_lane_transfer": true,
+  "operations": [
+    {
+      "name": "open_case_from_channel",
+      "interaction": "request",
+      "request_schema": "schemas/open-case-request.schema.json",
+      "response_schema": "schemas/case-response.schema.json",
+      "domain_error_schema": "schemas/open-case-error.schema.json"
+    },
+    {
+      "name": "append_channel_message",
+      "interaction": "request",
+      "request_schema": "schemas/append-message-request.schema.json",
+      "response_schema": "schemas/message-response.schema.json",
+      "domain_error_schema": "schemas/mutate-error.schema.json"
+    },
+    {
+      "name": "get_requester_case",
+      "interaction": "request",
+      "request_schema": "schemas/get-case-request.schema.json",
+      "response_schema": "schemas/case-response.schema.json",
+      "domain_error_schema": "schemas/read-error.schema.json"
+    },
+    {
+      "name": "list_requester_messages",
+      "interaction": "request",
+      "request_schema": "schemas/list-messages-request.schema.json",
+      "response_schema": "schemas/list-messages-response.schema.json",
+      "domain_error_schema": "schemas/read-error.schema.json"
+    }
+  ]
+}

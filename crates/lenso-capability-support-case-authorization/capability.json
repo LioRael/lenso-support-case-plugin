@@ -1,0 +1,15 @@
+{
+  "id": "lenso.support-case-authorization@1",
+  "version": "1.0.0",
+  "portable": true,
+  "cross_lane_transfer": true,
+  "operations": [
+    {
+      "name": "authorize_case_access",
+      "interaction": "request",
+      "request_schema": "schemas/authorize-request.schema.json",
+      "response_schema": "schemas/authorize-response.schema.json",
+      "domain_error_schema": "schemas/authorize-error.schema.json"
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["messages", "next_cursor"],
+  "properties": {
+    "messages": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["message_id", "case_id", "author_subject", "body", "created_at"],
+        "properties": {
+          "message_id": { "type": "string" },
+          "case_id": { "type": "string" },
+          "author_subject": { "type": "string" },
+          "body": { "type": "string" },
+          "created_at": { "type": "string", "format": "date-time" }
+        }
+      }
+    },
+    "next_cursor": { "type": ["string", "null"] }
+  }
+}
