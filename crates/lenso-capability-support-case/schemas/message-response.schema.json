@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["message_id", "case_id", "visibility", "author_subject", "body", "created_at", "case_revision"],
+  "properties": {
+    "message_id": { "type": "string" },
+    "case_id": { "type": "string" },
+    "visibility": { "type": "string", "enum": ["public", "internal"] },
+    "author_subject": { "type": "string" },
+    "body": { "type": "string" },
+    "created_at": { "type": "string" },
+    "case_revision": { "type": "string" }
+  },
+  "additionalProperties": false
+}
+
