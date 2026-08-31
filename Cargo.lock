@@ -831,7 +831,7 @@ dependencies = [
 
 [[package]]
 name = "lenso-capability-support-case"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "futures",
  "lenso-contract-codegen",
@@ -977,7 +977,7 @@ dependencies = [
 
 [[package]]
 name = "lenso-support-case-postgres-plugin"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "futures",
  "lenso",
