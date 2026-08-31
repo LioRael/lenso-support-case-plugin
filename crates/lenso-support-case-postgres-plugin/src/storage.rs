@@ -200,6 +200,23 @@ pub(crate) async fn get_case(
     row.as_ref().map(decode_case).transpose()
 }
 
+pub(crate) async fn message_belongs_to_case(
+    postgres: &OwnedPostgres,
+    organization_id: &str,
+    case_id: Uuid,
+    message_id: Uuid,
+) -> Result<bool, StorageError> {
+    sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(SELECT 1 FROM support_case_messages m JOIN support_cases c ON c.case_id=m.case_id WHERE c.organization_id=$1 AND c.case_id=$2 AND m.message_id=$3)",
+    )
+    .bind(organization_id)
+    .bind(case_id)
+    .bind(message_id)
+    .fetch_one(postgres.pool())
+    .await
+    .map_err(|source| database("validate support case message association", source))
+}
+
 pub(crate) async fn list_cases(
     postgres: &OwnedPostgres,
     filters: &CaseFilters<'_>,

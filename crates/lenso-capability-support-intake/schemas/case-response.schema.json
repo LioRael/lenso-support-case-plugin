@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["case_id", "identifier", "organization_id", "requester_subject", "title", "description", "priority", "state", "revision", "created_at", "updated_at"],
+  "properties": {
+    "case_id": { "type": "string" },
+    "identifier": { "type": "string" },
+    "organization_id": { "type": "string" },
+    "requester_subject": { "type": "string" },
+    "title": { "type": "string" },
+    "description": { "type": "string" },
+    "priority": { "type": "string", "enum": ["low", "normal", "high", "urgent"] },
+    "state": { "type": "string", "enum": ["open", "in_progress", "waiting_customer", "resolved", "closed"] },
+    "revision": { "type": "string", "pattern": "^[1-9][0-9]*$" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" }
+  }
+}

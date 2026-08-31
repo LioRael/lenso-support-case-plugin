@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["organization_id", "case_ref", "requester_subject", "expected_revision", "body", "idempotency_key"],
+  "properties": {
+    "organization_id": { "type": "string" },
+    "case_ref": { "type": "string" },
+    "requester_subject": { "type": "string" },
+    "expected_revision": { "type": "string", "pattern": "^[1-9][0-9]*$" },
+    "body": { "type": "string" },
+    "idempotency_key": { "type": "string" }
+  }
+}

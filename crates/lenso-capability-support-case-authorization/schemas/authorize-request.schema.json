@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["organization_id", "case_ref", "message_id", "subject", "action"],
+  "properties": {
+    "organization_id": { "type": "string" },
+    "case_ref": { "type": "string" },
+    "message_id": { "type": ["string", "null"] },
+    "subject": { "type": "string" },
+    "action": { "type": "string", "enum": ["read_public", "read_internal", "attach_public", "attach_internal"] }
+  }
+}

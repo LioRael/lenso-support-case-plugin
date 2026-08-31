@@ -41,9 +41,23 @@ use lenso_capability_support_case::{
     TransitionCaseRequestState, TransitionCaseResponse, UpdateCaseError, UpdateCaseRequest,
     UpdateCaseRequestPriority, UpdateCaseResponse,
 };
+use lenso_capability_support_case_authorization as case_authorization;
+use lenso_capability_support_case_authorization::{
+    AuthorizeCaseAccessError, AuthorizeCaseAccessRequest, AuthorizeCaseAccessRequestAction,
+    AuthorizeCaseAccessResponse,
+};
+use lenso_capability_support_intake as intake;
+use lenso_capability_support_intake::{
+    AppendChannelMessageError, AppendChannelMessageRequest, AppendChannelMessageResponse,
+    GetRequesterCaseError, GetRequesterCaseRequest, GetRequesterCaseResponse,
+    ListRequesterMessagesError, ListRequesterMessagesRequest, ListRequesterMessagesResponse,
+    ListRequesterMessagesResponseMessagesItem, OpenCaseFromChannelError,
+    OpenCaseFromChannelRequest, OpenCaseFromChannelRequestPriority, OpenCaseFromChannelResponse,
+};
 use lenso_kernel::{PluginDependencies, RuntimeFailure};
 use lenso_postgres_kit::OwnedPostgres;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use serde_json::Value;
 use sha2::{Digest as _, Sha256};
 use thiserror::Error;
 use time::OffsetDateTime;
@@ -72,6 +86,14 @@ const CASES_TRANSITION: &str = "support.cases.transition";
 const CASES_COMMENT: &str = "support.cases.comment";
 const CASES_INTERNAL_NOTE: &str = "support.cases.internal-note";
 
+#[derive(Serialize)]
+struct ChannelMessageFingerprint<'a> {
+    body: &'a str,
+    case_ref: &'a str,
+    organization_id: &'a str,
+    requester_subject: &'a str,
+}
+
 /// Immutable configuration for one Support Case Plugin Instance.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -81,6 +103,8 @@ pub struct SupportCaseConfig {
     auth_issuer: String,
     auth_assertion_public_key: String,
     business_callers: Vec<String>,
+    intake_callers: Vec<String>,
+    resource_callers: Vec<String>,
     export_callers: Vec<String>,
     retention_callers: Vec<String>,
     #[serde(default = "default_max_export_bytes")]
@@ -96,6 +120,8 @@ impl SupportCaseConfig {
         auth_issuer: impl Into<String>,
         auth_assertion_public_key: impl Into<String>,
         business_callers: Vec<String>,
+        intake_callers: Vec<String>,
+        resource_callers: Vec<String>,
         export_callers: Vec<String>,
         retention_callers: Vec<String>,
         max_export_bytes: usize,
@@ -106,6 +132,8 @@ impl SupportCaseConfig {
             auth_issuer: auth_issuer.into(),
             auth_assertion_public_key: auth_assertion_public_key.into(),
             business_callers,
+            intake_callers,
+            resource_callers,
             export_callers,
             retention_callers,
             max_export_bytes,
@@ -130,6 +158,10 @@ impl SupportCaseConfig {
         .map_err(|_| SupportCaseConfigError::InvalidAuthPublicKey)?;
         validate_callers(&self.business_callers)
             .map_err(|()| SupportCaseConfigError::InvalidBusinessCallers)?;
+        validate_callers(&self.intake_callers)
+            .map_err(|()| SupportCaseConfigError::InvalidIntakeCallers)?;
+        validate_callers(&self.resource_callers)
+            .map_err(|()| SupportCaseConfigError::InvalidResourceCallers)?;
         validate_callers(&self.export_callers)
             .map_err(|()| SupportCaseConfigError::InvalidExportCallers)?;
         validate_callers(&self.retention_callers)
@@ -164,6 +196,10 @@ pub enum SupportCaseConfigError {
     InvalidAuthPublicKey,
     #[error("business_callers must contain unique exact Instance keys")]
     InvalidBusinessCallers,
+    #[error("intake_callers must contain unique exact Instance keys")]
+    InvalidIntakeCallers,
+    #[error("resource_callers must contain unique exact Instance keys")]
+    InvalidResourceCallers,
     #[error("export_callers must contain unique exact Instance keys")]
     InvalidExportCallers,
     #[error("retention_callers must contain unique exact Instance keys")]
@@ -207,18 +243,316 @@ impl fmt::Debug for PostgresSupportCasePlugin {
             .field("schema", &self.config.schema)
             .field("prepared", &self.prepared.borrow().is_some())
             .field("business_caller_count", &self.config.business_callers.len())
+            .field("intake_caller_count", &self.config.intake_callers.len())
+            .field("resource_caller_count", &self.config.resource_callers.len())
             .finish_non_exhaustive()
     }
 }
 
 #[lenso::provides(
     support::SupportCase,
+    intake::SupportIntake,
+    case_authorization::SupportCaseAuthorization,
     export_source::DataExportSource,
     retention::RetentionParticipant
 )]
 impl PostgresSupportCasePlugin {}
 
 impl PostgresSupportCasePlugin {
+    async fn open_case_from_channel(
+        &self,
+        context: Ctx,
+        request: OpenCaseFromChannelRequest,
+    ) -> PluginResult<OpenCaseFromChannelResponse, OpenCaseFromChannelError> {
+        let caller = Self::allowed_caller(&context, &self.config.intake_callers)
+            .ok_or_else(|| PluginError::domain(OpenCaseFromChannelError::Forbidden))?;
+        if !valid_opaque_id(&request.organization_id, MAX_ID_BYTES)
+            || !valid_opaque_id(&request.requester_subject, MAX_ID_BYTES)
+            || !valid_text(&request.title, MAX_TITLE_BYTES, false)
+            || !valid_text(&request.description, MAX_DESCRIPTION_BYTES, true)
+            || !valid_idempotency_key(&request.idempotency_key)
+        {
+            return Err(PluginError::domain(
+                OpenCaseFromChannelError::InvalidRequest,
+            ));
+        }
+        let request_hash = request_hash(&request)?;
+        let record = storage::create_case(
+            &self.prepared().map_err(PluginError::runtime)?.postgres,
+            &caller,
+            &request.idempotency_key,
+            &request_hash,
+            &request.organization_id,
+            &request.requester_subject,
+            &request.title,
+            &request.description,
+            intake_priority(&request.priority),
+        )
+        .await
+        .map_err(storage_runtime)?
+        .map_err(|failure| PluginError::domain(map_intake_open_failure(failure)))?;
+        wire_cast(&requester_case_value(&record).map_err(serialization_runtime)?)
+    }
+
+    async fn append_channel_message(
+        &self,
+        context: Ctx,
+        request: AppendChannelMessageRequest,
+    ) -> PluginResult<AppendChannelMessageResponse, AppendChannelMessageError> {
+        let caller = Self::allowed_caller(&context, &self.config.intake_callers)
+            .ok_or_else(|| PluginError::domain(AppendChannelMessageError::Forbidden))?;
+        let expected_revision = parse_mutation_request(
+            &request.organization_id,
+            &request.case_ref,
+            &request.expected_revision,
+            &request.idempotency_key,
+        )
+        .ok_or_else(|| PluginError::domain(AppendChannelMessageError::InvalidRequest))?;
+        if !valid_opaque_id(&request.requester_subject, MAX_ID_BYTES)
+            || !valid_text(&request.body, MAX_MESSAGE_BYTES, false)
+        {
+            return Err(PluginError::domain(
+                AppendChannelMessageError::InvalidRequest,
+            ));
+        }
+        let case_id = Uuid::parse_str(&request.case_ref)
+            .map_err(|_| PluginError::domain(AppendChannelMessageError::InvalidRequest))?;
+        // The optimistic revision is a first-attempt concurrency guard, not
+        // part of the channel message's semantic identity. A provider retry
+        // re-reads the current revision; keeping it out of the receipt hash
+        // lets the stable idempotency key replay the original result.
+        let request_hash = request_hash(&ChannelMessageFingerprint {
+            body: &request.body,
+            case_ref: &request.case_ref,
+            organization_id: &request.organization_id,
+            requester_subject: &request.requester_subject,
+        })?;
+        let record = storage::add_message(
+            &self.prepared().map_err(PluginError::runtime)?.postgres,
+            &caller,
+            &request.idempotency_key,
+            &request_hash,
+            &request.organization_id,
+            case_id,
+            &request.requester_subject,
+            false,
+            expected_revision,
+            "public",
+            &request.body,
+        )
+        .await
+        .map_err(storage_runtime)?
+        .map_err(|failure| PluginError::domain(map_intake_message_failure(failure)))?;
+        wire_cast(&requester_message_value(&record).map_err(serialization_runtime)?)
+    }
+
+    async fn get_requester_case(
+        &self,
+        context: Ctx,
+        request: GetRequesterCaseRequest,
+    ) -> PluginResult<GetRequesterCaseResponse, GetRequesterCaseError> {
+        Self::allowed_caller(&context, &self.config.intake_callers)
+            .ok_or_else(|| PluginError::domain(GetRequesterCaseError::Forbidden))?;
+        if !valid_opaque_id(&request.organization_id, MAX_ID_BYTES)
+            || !valid_opaque_id(&request.requester_subject, MAX_ID_BYTES)
+            || !valid_case_ref(&request.case_ref)
+        {
+            return Err(PluginError::domain(GetRequesterCaseError::InvalidRequest));
+        }
+        let record = storage::get_case(
+            &self.prepared().map_err(PluginError::runtime)?.postgres,
+            &request.organization_id,
+            &request.case_ref,
+            &request.requester_subject,
+            false,
+        )
+        .await
+        .map_err(storage_runtime)?
+        .ok_or_else(|| PluginError::domain(GetRequesterCaseError::CaseNotFound))?;
+        wire_cast(&requester_case_value(&record).map_err(serialization_runtime)?)
+    }
+
+    async fn list_requester_messages(
+        &self,
+        context: Ctx,
+        request: ListRequesterMessagesRequest,
+    ) -> PluginResult<ListRequesterMessagesResponse, ListRequesterMessagesError> {
+        Self::allowed_caller(&context, &self.config.intake_callers)
+            .ok_or_else(|| PluginError::domain(ListRequesterMessagesError::Forbidden))?;
+        let cursor =
+            parse_optional_cursor(request.cursor.as_deref(), storage::decode_message_cursor)
+                .map_err(|()| PluginError::domain(ListRequesterMessagesError::InvalidRequest))?;
+        if !valid_opaque_id(&request.organization_id, MAX_ID_BYTES)
+            || !valid_opaque_id(&request.requester_subject, MAX_ID_BYTES)
+            || !(1..=200).contains(&request.limit)
+        {
+            return Err(PluginError::domain(
+                ListRequesterMessagesError::InvalidRequest,
+            ));
+        }
+        let case_id = Uuid::parse_str(&request.case_ref)
+            .map_err(|_| PluginError::domain(ListRequesterMessagesError::InvalidRequest))?;
+        let mut records = storage::list_messages(
+            &self.prepared().map_err(PluginError::runtime)?.postgres,
+            &request.organization_id,
+            case_id,
+            &request.requester_subject,
+            false,
+            false,
+            cursor.as_ref(),
+            request.limit + 1,
+        )
+        .await
+        .map_err(storage_runtime)?
+        .ok_or_else(|| PluginError::domain(ListRequesterMessagesError::CaseNotFound))?;
+        let page_size = usize::try_from(request.limit)
+            .map_err(|_| PluginError::domain(ListRequesterMessagesError::InvalidRequest))?;
+        let has_more = records.len() > page_size;
+        if has_more {
+            records.pop();
+        }
+        let next_cursor = if has_more {
+            records
+                .last()
+                .map(storage::encode_message_cursor)
+                .transpose()
+                .map_err(storage_runtime)?
+        } else {
+            None
+        };
+        let messages = records
+            .iter()
+            .map(|record| {
+                wire_cast(&requester_list_message_value(record).map_err(serialization_runtime)?)
+            })
+            .collect::<PluginResult<
+                Vec<ListRequesterMessagesResponseMessagesItem>,
+                ListRequesterMessagesError,
+            >>()?;
+        Ok(ListRequesterMessagesResponse {
+            messages,
+            next_cursor,
+        })
+    }
+
+    async fn authorize_case_access(
+        &self,
+        context: Ctx,
+        request: AuthorizeCaseAccessRequest,
+    ) -> PluginResult<AuthorizeCaseAccessResponse, AuthorizeCaseAccessError> {
+        Self::allowed_caller(&context, &self.config.resource_callers)
+            .ok_or_else(|| PluginError::domain(AuthorizeCaseAccessError::Forbidden))?;
+        if !valid_opaque_id(&request.organization_id, MAX_ID_BYTES)
+            || !valid_opaque_id(&request.subject, MAX_ID_BYTES)
+            || !valid_case_ref(&request.case_ref)
+            || request
+                .message_id
+                .as_deref()
+                .is_some_and(|value| Uuid::parse_str(value).is_err())
+        {
+            return Err(PluginError::domain(
+                AuthorizeCaseAccessError::InvalidRequest,
+            ));
+        }
+        let postgres = self.prepared().map_err(PluginError::runtime)?.postgres;
+        let public_action = matches!(
+            request.action,
+            AuthorizeCaseAccessRequestAction::ReadPublic
+                | AuthorizeCaseAccessRequestAction::AttachPublic
+        );
+        if public_action {
+            let related = storage::get_case(
+                &postgres,
+                &request.organization_id,
+                &request.case_ref,
+                &request.subject,
+                false,
+            )
+            .await
+            .map_err(storage_runtime)?;
+            if let Some(record) = related {
+                return Self::case_resource_response(
+                    &postgres,
+                    &request.organization_id,
+                    record.case_id,
+                    request.message_id.as_deref(),
+                )
+                .await;
+            }
+        }
+        let permission = match request.action {
+            AuthorizeCaseAccessRequestAction::ReadPublic => CASES_READ,
+            AuthorizeCaseAccessRequestAction::AttachPublic => CASES_COMMENT,
+            AuthorizeCaseAccessRequestAction::ReadInternal
+            | AuthorizeCaseAccessRequestAction::AttachInternal => CASES_INTERNAL_NOTE,
+        };
+        let privileged = self
+            .require_membership(&context, &request.organization_id, &request.subject)
+            .await
+            .map_err(PluginError::runtime)?
+            && self
+                .permission(
+                    &context,
+                    &request.organization_id,
+                    &request.subject,
+                    permission,
+                )
+                .await
+                .map_err(PluginError::runtime)?;
+        if !privileged {
+            return Ok(AuthorizeCaseAccessResponse {
+                allowed: false,
+                case_id: None,
+            });
+        }
+        let record = storage::get_case(
+            &postgres,
+            &request.organization_id,
+            &request.case_ref,
+            &request.subject,
+            true,
+        )
+        .await
+        .map_err(storage_runtime)?;
+        let Some(record) = record else {
+            return Ok(AuthorizeCaseAccessResponse {
+                allowed: false,
+                case_id: None,
+            });
+        };
+        Self::case_resource_response(
+            &postgres,
+            &request.organization_id,
+            record.case_id,
+            request.message_id.as_deref(),
+        )
+        .await
+    }
+
+    async fn case_resource_response(
+        postgres: &OwnedPostgres,
+        organization_id: &str,
+        case_id: Uuid,
+        message_id: Option<&str>,
+    ) -> PluginResult<AuthorizeCaseAccessResponse, AuthorizeCaseAccessError> {
+        let message_matches = match message_id {
+            Some(message_id) => storage::message_belongs_to_case(
+                postgres,
+                organization_id,
+                case_id,
+                Uuid::parse_str(message_id)
+                    .map_err(|_| PluginError::domain(AuthorizeCaseAccessError::InvalidRequest))?,
+            )
+            .await
+            .map_err(storage_runtime)?,
+            None => true,
+        };
+        Ok(AuthorizeCaseAccessResponse {
+            allowed: message_matches,
+            case_id: message_matches.then(|| case_id.to_string()),
+        })
+    }
+
     async fn create_case(
         &self,
         context: Ctx,
@@ -1028,6 +1362,76 @@ fn map_message_failure(failure: DomainFailure) -> AddMessageError {
     }
 }
 
+fn map_intake_open_failure(failure: DomainFailure) -> OpenCaseFromChannelError {
+    match failure {
+        DomainFailure::Forbidden => OpenCaseFromChannelError::Forbidden,
+        DomainFailure::IdempotencyConflict => OpenCaseFromChannelError::IdempotencyConflict,
+        DomainFailure::CaseNotFound
+        | DomainFailure::RevisionConflict
+        | DomainFailure::InvalidTransition
+        | DomainFailure::RetentionConflict => OpenCaseFromChannelError::InvalidRequest,
+    }
+}
+
+fn map_intake_message_failure(failure: DomainFailure) -> AppendChannelMessageError {
+    match failure {
+        DomainFailure::Forbidden => AppendChannelMessageError::Forbidden,
+        DomainFailure::CaseNotFound => AppendChannelMessageError::CaseNotFound,
+        DomainFailure::RevisionConflict => AppendChannelMessageError::RevisionConflict,
+        DomainFailure::IdempotencyConflict => AppendChannelMessageError::IdempotencyConflict,
+        DomainFailure::InvalidTransition | DomainFailure::RetentionConflict => {
+            AppendChannelMessageError::InvalidRequest
+        }
+    }
+}
+
+fn requester_case_value(record: &storage::CaseRecord) -> Result<Value, serde_json::Error> {
+    let mut value = serde_json::to_value(record)?;
+    let Some(object) = value.as_object_mut() else {
+        return Err(serde_json::Error::io(std::io::Error::other(
+            "Support Case record did not serialize as an object",
+        )));
+    };
+    object.retain(|key, _| {
+        matches!(
+            key.as_str(),
+            "case_id"
+                | "identifier"
+                | "organization_id"
+                | "requester_subject"
+                | "title"
+                | "description"
+                | "priority"
+                | "state"
+                | "revision"
+                | "created_at"
+                | "updated_at"
+        )
+    });
+    Ok(value)
+}
+
+fn requester_message_value(record: &storage::MessageRecord) -> Result<Value, serde_json::Error> {
+    let mut value = serde_json::to_value(record)?;
+    let Some(object) = value.as_object_mut() else {
+        return Err(serde_json::Error::io(std::io::Error::other(
+            "Support Case message did not serialize as an object",
+        )));
+    };
+    object.remove("visibility");
+    Ok(value)
+}
+
+fn requester_list_message_value(
+    record: &storage::MessageRecord,
+) -> Result<Value, serde_json::Error> {
+    let mut value = requester_message_value(record)?;
+    if let Some(object) = value.as_object_mut() {
+        object.remove("case_revision");
+    }
+    Ok(value)
+}
+
 fn request_hash<T: Serialize, E>(request: &T) -> Result<Vec<u8>, PluginError<E>> {
     serde_json::to_vec(request)
         .map(|wire| Sha256::digest(wire).to_vec())
@@ -1060,6 +1464,14 @@ fn create_priority(value: &CreateCaseRequestPriority) -> &'static str {
         CreateCaseRequestPriority::Normal => "normal",
         CreateCaseRequestPriority::High => "high",
         CreateCaseRequestPriority::Urgent => "urgent",
+    }
+}
+fn intake_priority(value: &OpenCaseFromChannelRequestPriority) -> &'static str {
+    match value {
+        OpenCaseFromChannelRequestPriority::Low => "low",
+        OpenCaseFromChannelRequestPriority::Normal => "normal",
+        OpenCaseFromChannelRequestPriority::High => "high",
+        OpenCaseFromChannelRequestPriority::Urgent => "urgent",
     }
 }
 fn update_priority(value: &UpdateCaseRequestPriority) -> &'static str {
@@ -1192,6 +1604,8 @@ mod tests {
             "auth.users",
             issuer.public_key_base64(),
             vec!["support-api".to_owned()],
+            vec!["support-email".to_owned(), "help-center".to_owned()],
+            vec!["support-attachment".to_owned()],
             vec!["privacy-export".to_owned()],
             vec!["privacy-retention".to_owned()],
             DEFAULT_MAX_EXPORT_BYTES,
@@ -1226,6 +1640,8 @@ mod tests {
             provided,
             BTreeSet::from([
                 support::CAPABILITY_ID,
+                intake::CAPABILITY_ID,
+                case_authorization::CAPABILITY_ID,
                 export_source::CAPABILITY_ID,
                 retention::CAPABILITY_ID
             ])
@@ -1270,6 +1686,12 @@ mod tests {
         assert_eq!(
             invalid.validate(),
             Err(SupportCaseConfigError::InvalidBusinessCallers)
+        );
+        let mut invalid = config();
+        invalid.intake_callers.clear();
+        assert_eq!(
+            invalid.validate(),
+            Err(SupportCaseConfigError::InvalidIntakeCallers)
         );
         let mut invalid = config();
         invalid.export_callers.push("privacy-export".to_owned());

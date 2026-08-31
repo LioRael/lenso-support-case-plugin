@@ -13,6 +13,12 @@ The Plugin provides:
 - `lenso.support-case@1`: `create_case`, `get_case`, `list_cases`,
   `update_case`, `assign_case`, `transition_case`, `add_message`, and
   `list_messages`.
+- `lenso.support-intake@1`: requester-scoped channel operations to open a case,
+  append a public message, read one related case, and list only its public
+  messages. This is the narrow boundary used by Resend and Help Center.
+- `lenso.support-case-authorization@1`: one resource-authority operation used
+  by Support Attachment to authorize public/internal read or attach access and
+  resolve the canonical case UUID without sharing Support Case tables.
 - `lenso.data-export-source@1`: a bounded JSON export of the subject's related
   cases, subject-authored messages, and subject-attributed activity.
 - `lenso.retention-participant@1`: durable, idempotent anonymize and delete
@@ -24,10 +30,14 @@ It requires one Provider for each of:
 - `lenso.organization-membership@1`
 - `lenso.access-control@1`
 
-Every business request must come from an exact configured caller Instance and
-carry an Auth `ActorAssertion` issued for the exact Support Case operation.
-The Plugin then checks live Organization membership and Access Control before
-making its final resource-local decision.
+Every operation first enforces the exact caller list for its boundary.
+Back-office Support Case operations carry an exact-operation Auth assertion;
+internal and privileged actions then check live Organization membership and
+Access Control. Requester intake never trusts a caller-provided actor: each
+configured channel owns the mapping from its verified credential to
+`requester_subject`, and Support Case constrains reads/appends to that exact
+subject. Resource authorization accepts only configured resource callers and
+makes the final case/message relationship decision.
 
 ## Domain guarantees
 
@@ -92,5 +102,6 @@ documented in [`docs/release-process.md`](docs/release-process.md).
 The existing Data Export Source contract returns inline items without paging.
 This Plugin therefore caps its single JSON item at 8 MiB (or a lower configured
 limit) and returns runtime resource exhaustion rather than truncating data.
-Email delivery, SLA automation, attachments, search, merge/split, and a Console
-surface are intentionally outside this backend v1.
+Email transport, attachment bytes/associations, SLA automation, search,
+merge/split, and a Console surface remain separately removable Plugins. This
+backend provides only their narrow intake and resource-authorization seams.

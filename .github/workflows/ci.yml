@@ -25,6 +25,8 @@ jobs:
           --health-retries 12
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # stable
         with:
           toolchain: 1.94.0
@@ -39,7 +41,7 @@ jobs:
         run: >-
           cargo install --locked
           --git https://github.com/LioRael/lenso-protocols
-          --rev 9769bc5dc828fd9111da6d28a4ecd5f1bb198ab4
+          --rev 9d2774c767fd64a6cc63a5ac04360e9cb92816da
           lenso-contract-codegen
       - run: lenso-contract-codegen workspace check --manifest-path Cargo.toml
       - run: ./scripts/check-repository-boundary.sh
