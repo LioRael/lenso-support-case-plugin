@@ -34,7 +34,6 @@ single_source_packages=(
   lenso-runtime-codec
   lenso-contract-authoring
   lenso-contract-authoring-macros
-  lenso-contract-codegen
   lenso-contract-runtime
   lenso-plugin-authoring
 )
@@ -49,7 +48,7 @@ done
 for source_family in \
   'lenso,lenso-native-adapter,lenso-native-adapter-macros,lenso-runtime-codec' \
   'lenso-app-plan,lenso-kernel' \
-  'lenso-contract-authoring,lenso-contract-authoring-macros,lenso-contract-codegen,lenso-contract-runtime,lenso-plugin-authoring'; do
+  'lenso-contract-authoring,lenso-contract-authoring-macros,lenso-contract-runtime,lenso-plugin-authoring'; do
   source_count="$(
     jq --arg family "$source_family" '
       ($family | split(",")) as $names

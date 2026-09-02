@@ -33,17 +33,14 @@ for package in "${packages[@]}"; do
 done
 
 required_source_set=(
-  crates/lenso-capability-support-case/build.rs
   crates/lenso-capability-support-case/capability.json
   crates/lenso-capability-support-case/schemas/create-case-request.schema.json
   crates/lenso-capability-support-case/src/generated.rs
   crates/lenso-capability-support-case/src/lib.rs
-  crates/lenso-capability-support-case-authorization/build.rs
   crates/lenso-capability-support-case-authorization/capability.json
   crates/lenso-capability-support-case-authorization/schemas/authorize-request.schema.json
   crates/lenso-capability-support-case-authorization/src/generated.rs
   crates/lenso-capability-support-case-authorization/src/lib.rs
-  crates/lenso-capability-support-intake/build.rs
   crates/lenso-capability-support-intake/capability.json
   crates/lenso-capability-support-intake/schemas/open-case-request.schema.json
   crates/lenso-capability-support-intake/src/generated.rs
@@ -62,7 +59,7 @@ for source in "${required_source_set[@]}"; do
 done
 
 capability_manifest="$repository_root/crates/lenso-capability-support-case/Cargo.toml"
-for packaged_asset in '"build.rs"' '"capability.json"' '"schemas/*.json"' '"src/*.rs"'; do
+for packaged_asset in '"capability.json"' '"schemas/*.json"' '"src/*.rs"'; do
   rg --fixed-strings --quiet "$packaged_asset" "$capability_manifest" || {
     printf 'Capability include set is missing %s\n' "$packaged_asset" >&2
     exit 1
