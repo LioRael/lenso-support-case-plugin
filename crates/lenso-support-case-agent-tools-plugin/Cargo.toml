@@ -15,7 +15,7 @@ root-slot = "tool-providers"
 futures.workspace = true
 lenso.workspace = true
 lenso-capability-agent-tool-provider.workspace = true
-lenso-capability-support-case = { path = "../lenso-capability-support-case", version = "0.1.1" }
+lenso-capability-support-case = { path = "../lenso-capability-support-case", version = "0.1.2" }
 lenso-kernel.workspace = true
 serde.workspace = true
 serde_json.workspace = true
