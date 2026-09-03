@@ -24,6 +24,11 @@ The Plugin provides:
 - `lenso.retention-participant@1`: durable, idempotent anonymize and delete
   participation without deleting organization-owned case records.
 
+The separate `lenso.support-case.agent-tools` linked Plugin provides eight
+back-office Agent Tools over `lenso.support-case@1`. It forwards the invocation
+context unchanged, so Support Case remains the final owner of authentication,
+membership, authorization, visibility, idempotency, and revision checks.
+
 It requires one Provider for each of:
 
 - `lenso.secrets@1`
