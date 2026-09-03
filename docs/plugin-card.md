@@ -18,6 +18,13 @@ release provides four requester-facing operations through
 `lenso.data-export-source@1` and `lenso.retention-participant@1` roles with real
 PostgreSQL implementations.
 
+The separate `lenso.support-case.agent-tools` adapter provides
+`lenso.agent.tool-provider@2` and requires exactly one
+`lenso.support-case@1` provider. It owns only the Agent catalog and typed
+argument/result adaptation. Removing it removes the Agent surface without
+removing Support Case facts or changing requester, resource-authorization,
+export, or retention behavior.
+
 The `SUP-N` identifier is stable only within one Organization. Mutations accept
 the stable UUID, an idempotency key, and (except create) an expected decimal
 revision. Public messages and internal notes share one owned table but are

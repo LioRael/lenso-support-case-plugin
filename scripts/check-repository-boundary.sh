@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-expected_crates=$'lenso-capability-support-case\nlenso-capability-support-case-authorization\nlenso-capability-support-intake\nlenso-support-case-postgres-plugin'
+expected_crates=$'lenso-capability-support-case\nlenso-capability-support-case-authorization\nlenso-capability-support-intake\nlenso-support-case-agent-tools-plugin\nlenso-support-case-postgres-plugin'
 actual_crates="$(find crates -mindepth 2 -maxdepth 2 -name Cargo.toml -print0 | xargs -0 sed -n 's/^name = "\([^"]*\)"/\1/p' | sort)"
 
 if [[ "$actual_crates" != "$expected_crates" ]]; then
@@ -10,7 +10,7 @@ if [[ "$actual_crates" != "$expected_crates" ]]; then
   exit 1
 fi
 
-expected_path_dependencies=$'./crates/lenso-support-case-postgres-plugin/Cargo.toml:path = "../lenso-capability-support-case"\n./crates/lenso-support-case-postgres-plugin/Cargo.toml:path = "../lenso-capability-support-case-authorization"\n./crates/lenso-support-case-postgres-plugin/Cargo.toml:path = "../lenso-capability-support-intake"'
+expected_path_dependencies=$'./crates/lenso-support-case-agent-tools-plugin/Cargo.toml:path = "../lenso-capability-support-case"\n./crates/lenso-support-case-postgres-plugin/Cargo.toml:path = "../lenso-capability-support-case"\n./crates/lenso-support-case-postgres-plugin/Cargo.toml:path = "../lenso-capability-support-case-authorization"\n./crates/lenso-support-case-postgres-plugin/Cargo.toml:path = "../lenso-capability-support-intake"'
 actual_path_dependencies="$(rg --no-heading --with-filename -o 'path\s*=\s*"[^"]+"' --glob 'Cargo.toml' . | sort)"
 
 if [[ "$actual_path_dependencies" != "$expected_path_dependencies" ]]; then
@@ -84,12 +84,21 @@ if rg -n 'CARGO_REGISTRY_TOKEN|CRATES_IO_TOKEN' .github; then
   exit 1
 fi
 
-for manifest in crates/*/Cargo.toml; do
+for manifest in \
+  crates/lenso-capability-support-case/Cargo.toml \
+  crates/lenso-capability-support-case-authorization/Cargo.toml \
+  crates/lenso-capability-support-intake/Cargo.toml \
+  crates/lenso-support-case-postgres-plugin/Cargo.toml; do
   if ! rg -qx 'publish = true' "$manifest"; then
     echo "$manifest is not explicitly publishable" >&2
     exit 1
   fi
 done
+
+if ! rg -qx 'publish = false' crates/lenso-support-case-agent-tools-plugin/Cargo.toml; then
+  echo "the linked Agent Tool adapter must remain private" >&2
+  exit 1
+fi
 
 release_workflow=.github/workflows/release-plz.yml
 for release_contract in \
