@@ -1,3 +1,4 @@
+use futures::{Stream, StreamExt as _, TryStreamExt as _, stream::BoxStream};
 use lenso_postgres_kit::OwnedPostgres;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
@@ -575,16 +576,25 @@ impl ExportSection {
         }
     }
 
-    fn query(self) -> &'static str {
-        match self {
-            Self::Cases => {
-                "SELECT case_id,identifier,organization_id,requester_subject,creator_subject,title,description,priority,state,assignee_subject,revision,created_at,updated_at,resolved_at,closed_at FROM support_cases c WHERE organization_id=$1 AND (requester_subject=$2 OR creator_subject=$2 OR assignee_subject=$2 OR EXISTS(SELECT 1 FROM support_case_messages m WHERE m.case_id=c.case_id AND m.author_subject=$2)) AND ($3::timestamptz IS NULL OR (c.created_at,c.case_id)>($3,$4)) ORDER BY c.created_at,c.case_id LIMIT $5"
+    fn query(self, subsequent: bool) -> &'static str {
+        match (self, subsequent) {
+            (Self::Cases, false) => {
+                "SELECT case_id,identifier,organization_id,requester_subject,creator_subject,title,CASE WHEN octet_length(description)<=$4 THEN description END AS description,priority,state,assignee_subject,revision,created_at,updated_at,resolved_at,closed_at FROM support_cases c WHERE organization_id=$1 AND (requester_subject=$2 OR creator_subject=$2 OR assignee_subject=$2 OR EXISTS(SELECT 1 FROM support_case_messages m WHERE m.case_id=c.case_id AND m.author_subject=$2)) ORDER BY c.created_at,c.case_id LIMIT $3"
             }
-            Self::Messages => {
-                "SELECT m.message_id,m.case_id,m.visibility,m.author_subject,m.body,m.created_at FROM support_case_messages m JOIN support_cases c ON c.case_id=m.case_id WHERE c.organization_id=$1 AND m.author_subject=$2 AND ($3::timestamptz IS NULL OR (m.created_at,m.message_id)>($3,$4)) ORDER BY m.created_at,m.message_id LIMIT $5"
+            (Self::Cases, true) => {
+                "SELECT case_id,identifier,organization_id,requester_subject,creator_subject,title,CASE WHEN octet_length(description)<=$4 THEN description END AS description,priority,state,assignee_subject,revision,created_at,updated_at,resolved_at,closed_at FROM support_cases c WHERE organization_id=$1 AND (requester_subject=$2 OR creator_subject=$2 OR assignee_subject=$2 OR EXISTS(SELECT 1 FROM support_case_messages m WHERE m.case_id=c.case_id AND m.author_subject=$2)) AND (c.created_at,c.case_id)>($5,$6) ORDER BY c.created_at,c.case_id LIMIT $3"
             }
-            Self::Activity => {
-                "SELECT activity_id,case_id,kind,actor_subject,case_revision,payload,created_at FROM support_case_activity WHERE organization_id=$1 AND actor_subject=$2 AND ($3::timestamptz IS NULL OR (created_at,activity_id)>($3,$4)) ORDER BY created_at,activity_id LIMIT $5"
+            (Self::Messages, false) => {
+                "SELECT m.message_id,m.case_id,m.visibility,m.author_subject,CASE WHEN octet_length(m.body)<=$4 THEN m.body END AS body,m.created_at FROM support_case_messages m JOIN support_cases c ON c.case_id=m.case_id WHERE c.organization_id=$1 AND m.author_subject=$2 ORDER BY m.created_at,m.message_id LIMIT $3"
+            }
+            (Self::Messages, true) => {
+                "SELECT m.message_id,m.case_id,m.visibility,m.author_subject,CASE WHEN octet_length(m.body)<=$4 THEN m.body END AS body,m.created_at FROM support_case_messages m JOIN support_cases c ON c.case_id=m.case_id WHERE c.organization_id=$1 AND m.author_subject=$2 AND (m.created_at,m.message_id)>($5,$6) ORDER BY m.created_at,m.message_id LIMIT $3"
+            }
+            (Self::Activity, false) => {
+                "SELECT activity_id,case_id,kind,actor_subject,case_revision,CASE WHEN octet_length(payload::text)<=$4 THEN payload END AS payload,created_at FROM support_case_activity WHERE organization_id=$1 AND actor_subject=$2 ORDER BY created_at,activity_id LIMIT $3"
+            }
+            (Self::Activity, true) => {
+                "SELECT activity_id,case_id,kind,actor_subject,case_revision,CASE WHEN octet_length(payload::text)<=$4 THEN payload END AS payload,created_at FROM support_case_activity WHERE organization_id=$1 AND actor_subject=$2 AND (created_at,activity_id)>($5,$6) ORDER BY created_at,activity_id LIMIT $3"
             }
         }
     }
@@ -638,6 +648,10 @@ impl ExportWriter {
             }
         })
     }
+
+    fn remaining(&self) -> usize {
+        self.limit - self.bytes.len()
+    }
 }
 
 impl std::io::Write for ExportWriter {
@@ -662,31 +676,54 @@ pub(crate) async fn export_subject(
         organization_id,
         subject,
         max_export_bytes,
-        |section, cursor| fetch_export_page(postgres, organization_id, subject, section, cursor),
-        |row, section| decode_export_row(row, section, subject),
+        |section, cursor, remaining| {
+            fetch_export_page(
+                postgres,
+                organization_id,
+                subject,
+                section,
+                cursor,
+                remaining,
+            )
+        },
+        |row, section| decode_export_row(&row, section, subject),
     )
     .await
 }
 
-async fn fetch_export_page(
-    postgres: &OwnedPostgres,
-    organization_id: &str,
-    subject: &str,
+fn fetch_export_page<'a>(
+    postgres: &'a OwnedPostgres,
+    organization_id: &'a str,
+    subject: &'a str,
     section: ExportSection,
     cursor: Option<ExportCursor>,
-) -> Result<Vec<sqlx::postgres::PgRow>, StorageError> {
-    sqlx::query(section.query())
+    max_bytes: usize,
+) -> Result<BoxStream<'a, Result<sqlx::postgres::PgRow, StorageError>>, StorageError> {
+    // Gate large values inside PostgreSQL before SQLx receives them. TEXT/JSONB
+    // columns are NOT NULL, so a projected NULL is an unambiguous exhaustion
+    // marker. SQLx yields and drops one row at a time; a page never multiplies
+    // retained payload bytes.
+    let body_limit =
+        i64::try_from(max_bytes).map_err(|source| StorageError::InvalidStoredData {
+            detail: format!("export byte ceiling does not fit PostgreSQL bigint: {source}"),
+        })?;
+    let query = sqlx::query(section.query(cursor.is_some()))
         .bind(organization_id)
         .bind(subject)
-        .bind(cursor.map(|cursor| cursor.created_at))
-        .bind(cursor.map(|cursor| cursor.id))
         .bind(i64::try_from(EXPORT_PAGE_SIZE).expect("export page size fits i64"))
-        .fetch_all(postgres.pool())
-        .await
+        .bind(body_limit);
+    let query = if let Some(cursor) = cursor {
+        query.bind(cursor.created_at).bind(cursor.id)
+    } else {
+        query
+    };
+    Ok(query
+        .fetch(postgres.pool())
         .map_err(|source| database("export support page", source))
+        .boxed())
 }
 
-async fn serialize_export_pages<T, F, Fut, D>(
+async fn serialize_export_pages<T, F, S, D>(
     organization_id: &str,
     subject: &str,
     max_export_bytes: usize,
@@ -694,9 +731,9 @@ async fn serialize_export_pages<T, F, Fut, D>(
     mut decode: D,
 ) -> Result<String, ExportError>
 where
-    F: FnMut(ExportSection, Option<ExportCursor>) -> Fut,
-    Fut: std::future::Future<Output = Result<Vec<T>, StorageError>>,
-    D: FnMut(T, ExportSection) -> Result<(ExportCursor, Value), StorageError>,
+    F: FnMut(ExportSection, Option<ExportCursor>, usize) -> Result<S, StorageError>,
+    S: Stream<Item = Result<T, StorageError>>,
+    D: FnMut(T, ExportSection) -> Result<(ExportCursor, Value), ExportError>,
 {
     let mut writer = ExportWriter::new(max_export_bytes);
     writer.append(b"{")?;
@@ -728,19 +765,21 @@ where
         writer.append(b":[")?;
         let mut cursor = None;
         loop {
-            let page = fetch_page(section, cursor).await?;
-            let last_page = page.len() < EXPORT_PAGE_SIZE;
-            for row in page {
+            let rows = fetch_page(section, cursor, writer.remaining())?;
+            futures::pin_mut!(rows);
+            let mut count = 0;
+            while let Some(row) = rows.try_next().await? {
                 if cursor.is_some() {
                     writer.append(b",")?;
                 }
-                // Decode and serialize only one row at a time. An exhausted
-                // budget drops this page and prevents all subsequent fetches.
+                // Decode and serialize only one borrowed row before polling
+                // PostgreSQL again.
                 let (next_cursor, value) = decode(row, section)?;
                 writer.json(&value)?;
                 cursor = Some(next_cursor);
+                count += 1;
             }
-            if last_page {
+            if count < EXPORT_PAGE_SIZE {
                 break;
             }
         }
@@ -751,10 +790,10 @@ where
 }
 
 fn decode_export_row(
-    row: sqlx::postgres::PgRow,
+    row: &sqlx::postgres::PgRow,
     section: ExportSection,
     subject: &str,
-) -> Result<(ExportCursor, Value), StorageError> {
+) -> Result<(ExportCursor, Value), ExportError> {
     let cursor = ExportCursor {
         created_at: row
             .try_get("created_at")
@@ -764,16 +803,25 @@ fn decode_export_row(
             .map_err(|source| database("decode export cursor id", source))?,
     };
     let value = match section {
-        ExportSection::Cases => serde_json::to_value(decode_case(&row)?)?,
+        ExportSection::Cases => {
+            row.try_get::<Option<&str>, _>("description")
+                .map_err(|source| database("decode export case description", source))?
+                .ok_or(ExportError::LimitExceeded)?;
+            serde_json::to_value(decode_case(row)?)?
+        }
         ExportSection::Messages => {
-            let mut record = decode_message(&row)?;
+            row.try_get::<Option<&str>, _>("body")
+                .map_err(|source| database("decode export message body", source))?
+                .ok_or(ExportError::LimitExceeded)?;
+            let mut record = decode_message(row)?;
             record.case_revision = 0;
             serde_json::to_value(record)?
         }
         ExportSection::Activity => {
             let mut payload = row
-                .try_get::<Json<Value>, _>("payload")
+                .try_get::<Option<Json<Value>>, _>("payload")
                 .map_err(|source| database("decode export activity payload", source))?
+                .ok_or(ExportError::LimitExceeded)?
                 .0;
             if payload.get("assignee_subject").and_then(Value::as_str) != Some(subject)
                 && let Some(object) = payload.as_object_mut()
@@ -1151,7 +1199,8 @@ mod decimal_i64 {
 #[cfg(test)]
 mod export_tests {
     use std::cell::Cell;
-    use std::future::ready;
+
+    use futures::stream;
 
     use super::*;
 
@@ -1181,14 +1230,15 @@ mod export_tests {
             "org_1",
             "usr_1",
             limit,
-            |_, cursor| {
+            |_, cursor, _| {
                 fetches.set(fetches.get() + 1);
-                ready(Ok(rows
-                    .iter()
-                    .filter(|(key, _)| cursor.is_none_or(|cursor| *key > cursor))
-                    .take(EXPORT_PAGE_SIZE)
-                    .cloned()
-                    .collect()))
+                Ok(stream::iter(
+                    rows.iter()
+                        .filter(move |(key, _)| cursor.is_none_or(|cursor| *key > cursor))
+                        .take(EXPORT_PAGE_SIZE)
+                        .cloned()
+                        .map(Ok),
+                ))
             },
             |row, _| {
                 decoded.set(decoded.get() + 1);
@@ -1301,16 +1351,20 @@ mod export_tests {
             "org_1",
             "usr_1",
             100_000,
-            |section, cursor| {
-                ready(Ok(if section == ExportSection::Messages {
-                    rows.iter()
-                        .filter(|(key, _)| cursor.is_none_or(|cursor| *key > cursor))
-                        .take(EXPORT_PAGE_SIZE)
-                        .cloned()
-                        .collect()
-                } else {
-                    vec![]
-                }))
+            |section, cursor, _| {
+                Ok(stream::iter(
+                    if section == ExportSection::Messages {
+                        rows.iter()
+                            .filter(move |(key, _)| cursor.is_none_or(|cursor| *key > cursor))
+                            .take(EXPORT_PAGE_SIZE)
+                            .cloned()
+                            .collect()
+                    } else {
+                        vec![]
+                    }
+                    .into_iter()
+                    .map(Ok),
+                ))
             },
             |row, _| Ok(row),
         )
@@ -1408,6 +1462,19 @@ mod export_tests {
         );
         assert!(matches!(
             export_subject(&postgres, "org_1", "usr_1", expected.len() - 1).await,
+            Err(ExportError::LimitExceeded)
+        ));
+        // The bounded query must reject an oversized field before decoding the
+        // full value.  This keeps the database transfer bounded by the writer's
+        // remaining budget rather than materialising a multi-megabyte body.
+        sqlx::query("UPDATE support_case_messages SET body=repeat('x', 1048576) WHERE message_id=(SELECT m.message_id FROM support_case_messages m JOIN support_cases c ON c.case_id=m.case_id WHERE c.organization_id=$1 AND m.author_subject=$2 ORDER BY m.created_at,m.message_id LIMIT 1)")
+            .bind("org_1")
+            .bind("usr_1")
+            .execute(postgres.pool())
+            .await
+            .unwrap();
+        assert!(matches!(
+            export_subject(&postgres, "org_1", "usr_1", expected.len()).await,
             Err(ExportError::LimitExceeded)
         ));
         let empty = export_subject(&postgres, "org_1", "missing", 1024)
