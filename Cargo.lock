@@ -885,7 +885,7 @@ dependencies = [
 
 [[package]]
 name = "lenso-capability-support-case"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "futures",
  "lenso-contract-runtime",
@@ -897,7 +897,7 @@ dependencies = [
 
 [[package]]
 name = "lenso-capability-support-case-authorization"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "futures",
  "lenso-contract-runtime",
@@ -909,7 +909,7 @@ dependencies = [
 
 [[package]]
 name = "lenso-capability-support-intake"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "futures",
  "lenso-contract-runtime",
@@ -1063,7 +1063,7 @@ dependencies = [
 
 [[package]]
 name = "lenso-support-case-postgres-plugin"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "futures",
  "lenso",

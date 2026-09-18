@@ -1,6 +1,6 @@
 [package]
 name = "lenso-capability-support-intake"
-version = "0.1.0"
+version = "0.1.1"
 description = "Portable external-channel intake Capability for Lenso Support Case providers."
 edition.workspace = true
 license.workspace = true
