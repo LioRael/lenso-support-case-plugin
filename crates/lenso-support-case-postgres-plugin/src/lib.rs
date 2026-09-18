@@ -1037,20 +1037,14 @@ impl PostgresSupportCasePlugin {
         {
             return Err(PluginError::domain(CollectExportError::InvalidRequest));
         }
-        let value = storage::export_subject(
+        let payload = storage::export_subject(
             &self.prepared().map_err(PluginError::runtime)?.postgres,
             &request.scope_id,
             &request.subject,
+            self.config.max_export_bytes,
         )
         .await
-        .map_err(storage_runtime)?;
-        let payload = serde_json::to_string(&value).map_err(serialization_runtime)?;
-        if payload.len() > self.config.max_export_bytes {
-            return Err(PluginError::runtime(RuntimeFailure::ResourceExhausted {
-                capability: export_source::CAPABILITY_ID,
-                operation: export_source::COLLECT_EXPORT_OPERATION.to_owned(),
-            }));
-        }
+        .map_err(export_runtime)?;
         Ok(CollectExportResponse {
             items: vec![CollectExportResponseItemsItem {
                 item_name: "support-cases.json".to_owned(),
@@ -1456,6 +1450,19 @@ fn storage_runtime<E>(error: storage::StorageError) -> PluginError<E> {
     PluginError::runtime(RuntimeFailure::PluginFailure {
         detail: error.to_string(),
     })
+}
+
+fn export_runtime(error: storage::ExportError) -> PluginError<CollectExportError> {
+    match error {
+        storage::ExportError::LimitExceeded => {
+            PluginError::runtime(RuntimeFailure::ResourceExhausted {
+                capability: export_source::CAPABILITY_ID,
+                operation: export_source::COLLECT_EXPORT_OPERATION.to_owned(),
+            })
+        }
+        storage::ExportError::Storage(error) => storage_runtime(error),
+        storage::ExportError::Serialization(error) => serialization_runtime(error),
+    }
 }
 
 fn create_priority(value: &CreateCaseRequestPriority) -> &'static str {
